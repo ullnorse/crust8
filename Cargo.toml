@@ -1,0 +1,4 @@
+[workspace]
+resolver = "3"
+members = [ "crust8_core","desktop"]
+
