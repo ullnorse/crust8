@@ -26,6 +26,7 @@ name = "desktop"
 version = "0.1.0"
 dependencies = [
  "crust8_core",
+ "sdl3",
 ]
 
 [[package]]
@@ -39,6 +40,12 @@ dependencies = [
  "r-efi",
  "wasi",
 ]
+
+[[package]]
+name = "lazy_static"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
 
 [[package]]
 name = "libc"
@@ -107,6 +114,24 @@ checksum = "99d9a13982dcf210057a8a78572b2217b667c3beacbf3a0d8b454f6f82837d38"
 dependencies = [
  "getrandom",
 ]
+
+[[package]]
+name = "sdl3"
+version = "0.14.36"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a0508380771dfded0cb802963902d43606a1a65387b3378328a81415916ff7ec"
+dependencies = [
+ "bitflags",
+ "lazy_static",
+ "libc",
+ "sdl3-sys",
+]
+
+[[package]]
+name = "sdl3-sys"
+version = "0.5.4+SDL3-3.2.20"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5c4f7f348dea346f67f38bc1392bf1edd9250d4c586479778e849f6ee61af2d8"
 
 [[package]]
 name = "syn"

@@ -5,3 +5,4 @@ edition = "2024"
 
 [dependencies]
 crust8_core = { path = "../crust8_core" }
+sdl3 = "0.14.36"
