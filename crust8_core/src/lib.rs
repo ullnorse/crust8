@@ -9,6 +9,7 @@ const RAM_SIZE: usize = 4096;
 const NUM_REGS: usize = 16;
 const STACK_SIZE: usize = 16;
 const START_ADDR: u16 = 0x200;
+const NUM_KEYS: usize = 16;
 
 const FONTSET_SIZE: usize = 80;
 const FONTSET: [u8; FONTSET_SIZE] = [
@@ -38,6 +39,7 @@ pub struct Emulator {
     i_reg: u16,
     sp: u16,
     stack: [u16; STACK_SIZE],
+    keys: [bool; NUM_KEYS],
     delay_timer: u8,
     sound_timer: u8,
 }
@@ -58,6 +60,7 @@ impl Emulator {
             i_reg: 0,
             sp: 0,
             stack: [0; STACK_SIZE],
+            keys: [false; NUM_KEYS],
             delay_timer: 0,
             sound_timer: 0,
         };
@@ -309,6 +312,108 @@ impl Emulator {
                     self.v_reg[0xF] = 0;
                 }
 
+            }
+
+            // SKip if key index in VX is pressed
+            (0xE, _, 9, 0xE) => {
+                let x = digit2 as usize;
+                let vx = self.v_reg[x] as usize;
+
+                if self.keys[vx] {
+                    self.pc += 2;
+                }
+            }
+
+            // SKip if key index in VX isn't pressed
+            (0xE, _, 0xA, 1) => {
+                let x = digit2 as usize;
+                let vx = self.v_reg[x] as usize;
+
+                if !self.keys[vx] {
+                    self.pc += 2;
+                }
+            }
+
+            // VX = Delay timer
+            (0xF, _, 0, 7) => {
+                let x = digit2 as usize;
+                self.v_reg[x] = self.delay_timer;
+            }
+
+            // Waits for key press, stores index in VX
+            (0xF, _, 0, 0xA) => {
+                let x = digit2 as usize;
+                let mut pressed = false;
+
+                for (index, &key) in self.keys.iter().enumerate() {
+                    if key {
+                        self.v_reg[x] = index as u8;
+                        pressed = true;
+                        break;
+                    }
+                }
+
+                if !pressed {
+                    self.pc -= 2;
+                }
+            }
+
+            // Delay Timer = VX
+            (0xF, _, 1, 5) => {
+                let x = digit2 as usize;
+                self.delay_timer = self.v_reg[x];
+            }
+
+            // Sound Timer = VX
+            (0xF, _, 1, 8) => {
+                let x = digit2 as usize;
+                self.sound_timer = self.v_reg[x];
+            }
+
+            // I += VX
+            (0xF, _, 1, 0xE) => {
+                let x = digit2 as usize;
+                self.i_reg = self.i_reg.wrapping_add(self.v_reg[x] as u16);
+            }
+
+            // Set I to address of font character in VX
+            (0xF, _, 2, 9) => {
+                let x = digit2 as usize;
+                let c = self.v_reg[x] as u16;
+                self.i_reg = c * 5;
+            }
+
+            // Stores BCD encoding of VX into RAM address starting at I
+            (0xF, _, 3, 3) => {
+                // TODO: lookup faster bcd algo
+                let x = digit2 as usize;
+                let vx = self.v_reg[x] as f32;
+
+                let hundreds = (vx / 100.0).floor() as u8;
+                let tens = ((vx / 10.0) % 10.0).floor() as u8;
+                let ones = (vx % 10.0) as u8;
+
+                self.ram[self.i_reg as usize] = hundreds;
+                self.ram[(self.i_reg + 1) as usize] = tens;
+                self.ram[(self.i_reg + 2) as usize] = ones;
+            }
+
+            // Stores V0 thru VX into RAM address starting at I
+            (0xF, _, 5, 5) => {
+                let x = digit2 as usize;
+
+                for i in 0..=x {
+                    self.ram[self.i_reg as usize + i] = self.v_reg[x];
+                }
+            }
+
+            // Stores V0 thru VX with RAM values starting at address in I
+            (0xF, _, 6, 5) => {
+                let x = digit2 as usize;
+
+                for i in 0..=x {
+                    self.v_reg[i] = self.ram[self.i_reg as usize + i];
+                }
             }
 
             (_, _, _, _) => unimplemented!("Unimplemented opcode: {op}"),
