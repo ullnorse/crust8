@@ -325,7 +325,6 @@ impl Emulator {
                 } else {
                     self.v_reg[0xF] = 0;
                 }
-
             }
 
             // SKip if key index in VX is pressed
@@ -403,13 +402,10 @@ impl Emulator {
                 let x = digit2 as usize;
                 let vx = self.v_reg[x] as f32;
 
-                let hundreds = (vx / 100.0).floor() as u8;
-                let tens = ((vx / 10.0) % 10.0).floor() as u8;
-                let ones = (vx % 10.0) as u8;
-
-                self.ram[self.i_reg as usize] = hundreds;
-                self.ram[(self.i_reg + 1) as usize] = tens;
-                self.ram[(self.i_reg + 2) as usize] = ones;
+                let vx = self.v_reg[x];
+                self.ram[self.i_reg as usize] = vx / 100;
+                self.ram[self.i_reg as usize + 1] = (vx / 10) % 10;
+                self.ram[self.i_reg as usize + 2] = vx % 10;
             }
 
             // Stores V0 thru VX into RAM address starting at I
@@ -417,7 +413,7 @@ impl Emulator {
                 let x = digit2 as usize;
 
                 for i in 0..=x {
-                    self.ram[self.i_reg as usize + i] = self.v_reg[x];
+                    self.ram[self.i_reg as usize + i] = self.v_reg[i];
                 }
             }
 
