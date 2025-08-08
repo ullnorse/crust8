@@ -98,7 +98,10 @@ impl eframe::App for App {
         self.emu.tick_timers();
 
         for _ in 0..INSTRUCTIONS_PER_FRAME {
-            self.emu.tick();
+            if let Err(e) = self.emu.tick() {
+                eprintln!("Emulator error: {:?}", e);
+                break;
+            }
         }
 
         self.draw_screen(ctx);

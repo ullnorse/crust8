@@ -1,4 +1,5 @@
 use rand::random;
+use thiserror::Error;
 
 pub const SCREEN_WIDTH: usize = 64;
 pub const SCREEN_HEIGHT: usize = 32;
@@ -29,7 +30,17 @@ const FONTSET: [u8; FONTSET_SIZE] = [
     0xF0, 0x80, 0xF0, 0x80, 0x80, // F
 ];
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Error)]
+pub enum EmulatorError {
+    #[error("Unknown opcode: {0:#X}")]
+    UnknownOpcode(u16),
+    #[error("Stack overflow")]
+    StackOverflow,
+    #[error("Stack underflow")]
+    StackUnderflow,
+}
+
+#[derive(Debug)]
 pub enum Opcode {
     ClearScreen,
     ReturnSubroutine,
@@ -67,14 +78,20 @@ pub enum Opcode {
     LoadRegs { x: usize },
 }
 
-impl Opcode {
-    pub fn from_u16(op: u16) -> Result<Self, String> {
+impl TryFrom<u16> for Opcode {
+    type Error = EmulatorError;
+
+    fn try_from(op: u16) -> Result<Self, Self::Error> {
         let nibbles = (
             (op & 0xF000) >> 12,
             (op & 0x0F00) >> 8,
             (op & 0x00F0) >> 4,
             (op & 0x000F),
         );
+
+        let x = nibbles.1 as usize;
+        let y = nibbles.2 as usize;
+        let n = nibbles.3 as usize;
         let byte = (op & 0x00FF) as u8;
         let addr = op & 0x0FFF;
 
@@ -83,37 +100,37 @@ impl Opcode {
             (0x0, 0x0, 0xE, 0xE) => Ok(Opcode::ReturnSubroutine),
             (0x1, _, _, _) => Ok(Opcode::Jump(addr)),
             (0x2, _, _, _) => Ok(Opcode::Call(addr)),
-            (0x3, x, _, _) => Ok(Opcode::SkipIfEqByte { x: x as usize, byte }),
-            (0x4, x, _, _) => Ok(Opcode::SkipIfNeqByte { x: x as usize, byte }),
-            (0x5, x, y, 0x0) => Ok(Opcode::SkipIfEqReg { x: x as usize, y: y as usize }),
-            (0x6, x, _, _) => Ok(Opcode::SetReg { x: x as usize, byte }),
-            (0x7, x, _, _) => Ok(Opcode::AddByteToReg { x: x as usize, byte }),
-            (0x8, x, y, 0x0) => Ok(Opcode::SetRegToReg { x: x as usize, y: y as usize }),
-            (0x8, x, y, 0x1) => Ok(Opcode::OrReg { x: x as usize, y: y as usize }),
-            (0x8, x, y, 0x2) => Ok(Opcode::AndReg { x: x as usize, y: y as usize }),
-            (0x8, x, y, 0x3) => Ok(Opcode::XorReg { x: x as usize, y: y as usize }),
-            (0x8, x, y, 0x4) => Ok(Opcode::AddRegToReg { x: x as usize, y: y as usize }),
-            (0x8, x, y, 0x5) => Ok(Opcode::SubRegFromReg { x: x as usize, y: y as usize }),
-            (0x8, x, _, 0x6) => Ok(Opcode::ShrReg { x: x as usize }),
-            (0x8, x, y, 0x7) => Ok(Opcode::SubnRegFromReg { x: x as usize, y: y as usize }),
-            (0x8, x, _, 0xE) => Ok(Opcode::ShlReg { x: x as usize }),
-            (0x9, x, y, 0x0) => Ok(Opcode::SkipIfNeqReg { x: x as usize, y: y as usize }),
+            (0x3, _, _, _) => Ok(Opcode::SkipIfEqByte { x, byte }),
+            (0x4, _, _, _) => Ok(Opcode::SkipIfNeqByte { x, byte }),
+            (0x5, _, _, 0x0) => Ok(Opcode::SkipIfEqReg { x, y }),
+            (0x6, _, _, _) => Ok(Opcode::SetReg { x, byte }),
+            (0x7, _, _, _) => Ok(Opcode::AddByteToReg { x, byte }),
+            (0x8, _, _, 0x0) => Ok(Opcode::SetRegToReg { x, y }),
+            (0x8, _, _, 0x1) => Ok(Opcode::OrReg { x, y }),
+            (0x8, _, _, 0x2) => Ok(Opcode::AndReg { x, y }),
+            (0x8, _, _, 0x3) => Ok(Opcode::XorReg { x, y }),
+            (0x8, _, _, 0x4) => Ok(Opcode::AddRegToReg { x, y }),
+            (0x8, _, _, 0x5) => Ok(Opcode::SubRegFromReg { x, y }),
+            (0x8, _, _, 0x6) => Ok(Opcode::ShrReg { x }),
+            (0x8, _, _, 0x7) => Ok(Opcode::SubnRegFromReg { x, y }),
+            (0x8, _, _, 0xE) => Ok(Opcode::ShlReg { x }),
+            (0x9, _, _, 0x0) => Ok(Opcode::SkipIfNeqReg { x, y }),
             (0xA, _, _, _) => Ok(Opcode::SetI(addr)),
             (0xB, _, _, _) => Ok(Opcode::JumpV0(addr)),
-            (0xC, x, _, _) => Ok(Opcode::RndAndByte { x: x as usize, byte }),
-            (0xD, x, y, n) => Ok(Opcode::DrawSprite { x: x as usize, y: y as usize, n: n as usize }),
-            (0xE, x, 0x9, 0xE) => Ok(Opcode::SkipIfKeyPressed { x: x as usize }),
-            (0xE, x, 0xA, 0x1) => Ok(Opcode::SkipIfKeyNotPressed { x: x as usize }),
-            (0xF, x, 0x0, 0x7) => Ok(Opcode::SetRegToDelayTimer { x: x as usize }),
-            (0xF, x, 0x0, 0xA) => Ok(Opcode::WaitKeyPress { x: x as usize }),
-            (0xF, x, 0x1, 0x5) => Ok(Opcode::SetDelayTimer { x: x as usize }),
-            (0xF, x, 0x1, 0x8) => Ok(Opcode::SetSoundTimer { x: x as usize }),
-            (0xF, x, 0x1, 0xE) => Ok(Opcode::AddRegToI { x: x as usize }),
-            (0xF, x, 0x2, 0x9) => Ok(Opcode::SetIToSpriteAddr { x: x as usize }),
-            (0xF, x, 0x3, 0x3) => Ok(Opcode::StoreBCD { x: x as usize }),
-            (0xF, x, 0x5, 0x5) => Ok(Opcode::StoreRegs { x: x as usize }),
-            (0xF, x, 0x6, 0x5) => Ok(Opcode::LoadRegs { x: x as usize }),
-            _ => Err(format!("Unknown opcode {:#X}", op)),
+            (0xC, _, _, _) => Ok(Opcode::RndAndByte { x, byte }),
+            (0xD, _, _, _) => Ok(Opcode::DrawSprite { x, y, n }),
+            (0xE, _, 0x9, 0xE) => Ok(Opcode::SkipIfKeyPressed { x }),
+            (0xE, _, 0xA, 0x1) => Ok(Opcode::SkipIfKeyNotPressed { x }),
+            (0xF, _, 0x0, 0x7) => Ok(Opcode::SetRegToDelayTimer { x }),
+            (0xF, _, 0x0, 0xA) => Ok(Opcode::WaitKeyPress { x }),
+            (0xF, _, 0x1, 0x5) => Ok(Opcode::SetDelayTimer { x }),
+            (0xF, _, 0x1, 0x8) => Ok(Opcode::SetSoundTimer { x }),
+            (0xF, _, 0x1, 0xE) => Ok(Opcode::AddRegToI { x }),
+            (0xF, _, 0x2, 0x9) => Ok(Opcode::SetIToSpriteAddr { x }),
+            (0xF, _, 0x3, 0x3) => Ok(Opcode::StoreBCD { x }),
+            (0xF, _, 0x5, 0x5) => Ok(Opcode::StoreRegs { x }),
+            (0xF, _, 0x6, 0x5) => Ok(Opcode::LoadRegs { x }),
+            _ => Err(EmulatorError::UnknownOpcode(op)),
         }
     }
 }
@@ -121,7 +138,7 @@ impl Opcode {
 pub struct Emulator {
     pc: u16,
     ram: [u8; RAM_SIZE],
-    screen: [bool; SCREEN_HEIGHT * SCREEN_WIDTH],
+    screen: [bool; SCREEN_WIDTH * SCREEN_HEIGHT],
     v_reg: [u8; NUM_REGS],
     i_reg: u16,
     sp: u16,
@@ -178,9 +195,9 @@ impl Emulator {
         self.ram[start..end].copy_from_slice(data);
     }
 
-    pub fn tick(&mut self) {
+    pub fn tick(&mut self) -> Result<(), EmulatorError> {
         let op = self.fetch();
-        self.execute(op);
+        self.execute(op)
     }
 
     pub fn tick_timers(&mut self) {
@@ -189,7 +206,7 @@ impl Emulator {
         }
         if self.sound_timer > 0 {
             if self.sound_timer == 1 {
-                // TODO: add sound
+                // sound TODO
             }
             self.sound_timer -= 1;
         }
@@ -212,25 +229,30 @@ impl Emulator {
         u16::from_be_bytes([high, low])
     }
 
-    fn push(&mut self, val: u16) {
-        assert!((self.sp as usize) < STACK_SIZE, "Stack overflow");
+    fn push(&mut self, val: u16) -> Result<(), EmulatorError> {
+        if (self.sp as usize) >= STACK_SIZE {
+            return Err(EmulatorError::StackOverflow);
+        }
         self.stack[self.sp as usize] = val;
         self.sp += 1;
+        Ok(())
     }
 
-    fn pop(&mut self) -> u16 {
-        assert!(self.sp > 0, "Stack underflow");
+    fn pop(&mut self) -> Result<u16, EmulatorError> {
+        if self.sp == 0 {
+            return Err(EmulatorError::StackUnderflow);
+        }
         self.sp -= 1;
-        self.stack[self.sp as usize]
+        Ok(self.stack[self.sp as usize])
     }
 
-    fn execute(&mut self, op: u16) {
-        let opcode = Opcode::from_u16(op).unwrap_or_else(|e| panic!("{}", e));
+    fn execute(&mut self, op: u16) -> Result<(), EmulatorError> {
+        let opcode = Opcode::try_from(op)?;
         match opcode {
             Opcode::ClearScreen => self.clear_screen(),
-            Opcode::ReturnSubroutine => self.return_subroutine(),
+            Opcode::ReturnSubroutine => self.return_subroutine()?,
             Opcode::Jump(addr) => self.jump(addr),
-            Opcode::Call(addr) => self.call(addr),
+            Opcode::Call(addr) => self.call(addr)?,
             Opcode::SkipIfEqByte { x, byte } => self.skip_if_eq_byte(x, byte),
             Opcode::SkipIfNeqByte { x, byte } => self.skip_if_neq_byte(x, byte),
             Opcode::SkipIfEqReg { x, y } => self.skip_if_eq_reg(x, y),
@@ -262,23 +284,26 @@ impl Emulator {
             Opcode::StoreRegs { x } => self.store_regs(x),
             Opcode::LoadRegs { x } => self.load_regs(x),
         }
+        Ok(())
     }
 
     fn clear_screen(&mut self) {
         self.screen.fill(false);
     }
 
-    fn return_subroutine(&mut self) {
-        self.pc = self.pop();
+    fn return_subroutine(&mut self) -> Result<(), EmulatorError> {
+        self.pc = self.pop()?;
+        Ok(())
     }
 
     fn jump(&mut self, addr: u16) {
         self.pc = addr;
     }
 
-    fn call(&mut self, addr: u16) {
-        self.push(self.pc);
+    fn call(&mut self, addr: u16) -> Result<(), EmulatorError> {
+        self.push(self.pc)?;
         self.pc = addr;
+        Ok(())
     }
 
     fn skip_if_eq_byte(&mut self, x: usize, byte: u8) {
@@ -324,33 +349,29 @@ impl Emulator {
     }
 
     fn add_reg_to_reg(&mut self, x: usize, y: usize) {
-        let (res, carry) = self.v_reg[x].overflowing_add(self.v_reg[y]);
-        self.v_reg[x] = res;
-        self.v_reg[0xF] = if carry { 1 } else { 0 };
+        let (result, overflow) = self.v_reg[x].overflowing_add(self.v_reg[y]);
+        self.v_reg[0xF] = if overflow { 1 } else { 0 };
+        self.v_reg[x] = result;
     }
 
     fn sub_reg_from_reg(&mut self, x: usize, y: usize) {
-        let (res, borrow) = self.v_reg[x].overflowing_sub(self.v_reg[y]);
-        self.v_reg[x] = res;
-        self.v_reg[0xF] = if borrow { 0 } else { 1 };
+        self.v_reg[0xF] = if self.v_reg[x] > self.v_reg[y] { 1 } else { 0 };
+        self.v_reg[x] = self.v_reg[x].wrapping_sub(self.v_reg[y]);
     }
 
     fn shr_reg(&mut self, x: usize) {
-        let lsb = self.v_reg[x] & 1;
+        self.v_reg[0xF] = self.v_reg[x] & 0x1;
         self.v_reg[x] >>= 1;
-        self.v_reg[0xF] = lsb;
     }
 
     fn subn_reg_from_reg(&mut self, x: usize, y: usize) {
-        let (res, borrow) = self.v_reg[y].overflowing_sub(self.v_reg[x]);
-        self.v_reg[x] = res;
-        self.v_reg[0xF] = if borrow { 0 } else { 1 };
+        self.v_reg[0xF] = if self.v_reg[y] > self.v_reg[x] { 1 } else { 0 };
+        self.v_reg[x] = self.v_reg[y].wrapping_sub(self.v_reg[x]);
     }
 
     fn shl_reg(&mut self, x: usize) {
-        let msb = (self.v_reg[x] >> 7) & 1;
+        self.v_reg[0xF] = (self.v_reg[x] & 0x80) >> 7;
         self.v_reg[x] <<= 1;
-        self.v_reg[0xF] = msb;
     }
 
     fn skip_if_neq_reg(&mut self, x: usize, y: usize) {
@@ -364,25 +385,24 @@ impl Emulator {
     }
 
     fn jump_v0(&mut self, addr: u16) {
-        self.pc = (self.v_reg[0] as u16) + addr;
+        self.pc = addr + self.v_reg[0] as u16;
     }
 
     fn rnd_and_byte(&mut self, x: usize, byte: u8) {
-        self.v_reg[x] = random::<u8>() & byte;
+        let rnd: u8 = random();
+        self.v_reg[x] = rnd & byte;
     }
 
     fn draw_sprite(&mut self, x: usize, y: usize, n: usize) {
-        let x_pos = self.v_reg[x] as usize;
-        let y_pos = self.v_reg[y] as usize;
         self.v_reg[0xF] = 0;
-
         for row in 0..n {
-            let sprite_byte = self.ram[(self.i_reg + row as u16) as usize];
-            for bit in 0..8 {
-                if (sprite_byte & (0x80 >> bit)) != 0 {
-                    let px = (x_pos + bit) % SCREEN_WIDTH;
-                    let py = (y_pos + row) % SCREEN_HEIGHT;
-                    let idx = px + py * SCREEN_WIDTH;
+            let sprite_byte = self.ram[self.i_reg as usize + row];
+            for col in 0..8 {
+                let pixel = (sprite_byte >> (7 - col)) & 1;
+                if pixel == 1 {
+                    let px = (self.v_reg[x] as usize + col) % SCREEN_WIDTH;
+                    let py = (self.v_reg[y] as usize + row) % SCREEN_HEIGHT;
+                    let idx = py * SCREEN_WIDTH + px;
                     if self.screen[idx] {
                         self.v_reg[0xF] = 1;
                     }
@@ -393,15 +413,13 @@ impl Emulator {
     }
 
     fn skip_if_key_pressed(&mut self, x: usize) {
-        let key = self.v_reg[x] as usize;
-        if key < NUM_KEYS && self.keys[key] {
+        if self.keys[self.v_reg[x] as usize] {
             self.pc += 2;
         }
     }
 
     fn skip_if_key_not_pressed(&mut self, x: usize) {
-        let key = self.v_reg[x] as usize;
-        if key >= NUM_KEYS || !self.keys[key] {
+        if !self.keys[self.v_reg[x] as usize] {
             self.pc += 2;
         }
     }
@@ -411,15 +429,8 @@ impl Emulator {
     }
 
     fn wait_key_press(&mut self, x: usize) {
-        let mut pressed_key = None;
-        for (i, &pressed) in self.keys.iter().enumerate() {
-            if pressed {
-                pressed_key = Some(i as u8);
-                break;
-            }
-        }
-        if let Some(key) = pressed_key {
-            self.v_reg[x] = key;
+        if let Some(key) = self.keys.iter().position(|&pressed| pressed) {
+            self.v_reg[x] = key as u8;
         } else {
             self.pc -= 2;
         }
@@ -442,10 +453,10 @@ impl Emulator {
     }
 
     fn store_bcd(&mut self, x: usize) {
-        let vx = self.v_reg[x];
-        self.ram[self.i_reg as usize] = vx / 100;
-        self.ram[self.i_reg as usize + 1] = (vx / 10) % 10;
-        self.ram[self.i_reg as usize + 2] = vx % 10;
+        let val = self.v_reg[x];
+        self.ram[self.i_reg as usize] = val / 100;
+        self.ram[self.i_reg as usize + 1] = (val % 100) / 10;
+        self.ram[self.i_reg as usize + 2] = val % 10;
     }
 
     fn store_regs(&mut self, x: usize) {
@@ -462,6 +473,4 @@ impl Emulator {
 }
 
 #[cfg(test)]
-mod tests {
-
-}
+mod tests {}
