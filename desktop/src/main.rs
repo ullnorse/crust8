@@ -1,139 +1,124 @@
+use std::{fs::File, io::Read, time::Duration};
+
 use crust8_core::{Emulator, SCREEN_HEIGHT, SCREEN_WIDTH};
-use sdl3::{
-    EventPump,
-    event::Event,
-    keyboard::Keycode,
-    pixels::PixelFormatEnum,
-    render::{Canvas, TextureAccess},
-    video::Window,
-};
-use std::{
-    env,
-    fs::File,
-    io::Read,
-    time::{Duration, Instant},
+use eframe::{
+    CreationContext, NativeOptions,
+    egui::{
+        CentralPanel, Color32, Context, ImageSource, Key, TextureHandle, TextureOptions, Vec2,
+        ViewportBuilder, load::SizedTexture,
+    },
 };
 
-const SCALE: u32 = 15;
-const WINDOW_WIDTH: u32 = (SCREEN_WIDTH as u32) * SCALE;
-const WINDOW_HEIGHT: u32 = (SCREEN_HEIGHT as u32) * SCALE;
-const FRAME_RATE: u64 = 60;
-const INSTRUCTIONS_PER_SECOND: u64 = 700;
+const INSTRUCTIONS_PER_FRAME: u64 = 700 / 60;
 
-fn main() {
-    let args: Vec<_> = env::args().collect();
-    if args.len() != 2 {
-        println!("Usage: cargo run path/to/game");
-        return;
-    }
-
-    let sdl_context = sdl3::init().unwrap();
-    let video_subsystem = sdl_context.video().unwrap();
-    let window = video_subsystem
-        .window("Crust8", WINDOW_WIDTH, WINDOW_HEIGHT)
-        .position_centered()
-        .opengl()
-        .build()
-        .unwrap();
-    let mut canvas = window.into_canvas();
-    let creator = canvas.texture_creator();
-    let mut texture = creator
-        .create_texture(
-            Some(PixelFormatEnum::RGB24.into()),
-            TextureAccess::Streaming,
-            SCREEN_WIDTH as u32,
-            SCREEN_HEIGHT as u32,
-        )
-        .unwrap();
-    texture.set_scale_mode(sdl3::render::ScaleMode::Nearest);
-    let mut event_pump = sdl_context.event_pump().unwrap();
-
-    let mut emu = Emulator::new();
-    let mut rom = File::open(&args[1]).unwrap();
-    let mut buffer = Vec::new();
-    rom.read_to_end(&mut buffer).unwrap();
-    emu.load(&buffer);
-
-    let frame_duration = Duration::from_micros(1_000_000 / FRAME_RATE);
-    let instr_duration = Duration::from_micros(1_000_000 / INSTRUCTIONS_PER_SECOND);
-    let mut last_frame = Instant::now();
-    let mut last_instr = Instant::now();
-
-    loop {
-        handle_input(&mut event_pump, &mut emu);
-        while last_instr.elapsed() >= instr_duration {
-            emu.tick();
-            last_instr += instr_duration;
-        }
-        if last_frame.elapsed() >= frame_duration {
-            emu.tick_timers();
-            draw_screen(&emu, &mut canvas, &mut texture);
-            last_frame += frame_duration;
-        }
-    }
+struct App {
+    emu: Emulator,
+    texture: Option<TextureHandle>,
 }
 
-fn draw_screen(emu: &Emulator, canvas: &mut Canvas<Window>, texture: &mut sdl3::render::Texture) {
-    let mut pixels = [0u8; SCREEN_WIDTH * SCREEN_HEIGHT * 3];
-    let screen_buf = emu.get_display();
-    for (i, &on) in screen_buf.iter().enumerate() {
-        let color = if on { 0xFF } else { 0x00 };
-        let offset = i * 3;
-        pixels[offset] = color;
-        pixels[offset + 1] = color;
-        pixels[offset + 2] = color;
-    }
-    texture.update(None, &pixels, SCREEN_WIDTH * 3).unwrap();
-    canvas.clear();
-    canvas.copy(texture, None, None).unwrap();
-    canvas.present();
-}
+impl App {
+    pub fn new(_cc: &CreationContext<'_>) -> Self {
+        let args: Vec<_> = std::env::args().collect();
+        if args.len() != 2 {
+            panic!("Usage: cargo run -- path/to/rom");
+        }
 
-fn handle_input(event_pump: &mut EventPump, emu: &mut Emulator) {
-    for evt in event_pump.poll_iter() {
-        match evt {
-            Event::Quit { .. }
-            | Event::KeyDown {
-                keycode: Some(Keycode::Escape),
-                ..
-            } => std::process::exit(0),
-            Event::KeyDown {
-                keycode: Some(key), ..
-            } => {
-                if let Some(k) = key2btn(key) {
-                    emu.keypress(k, true);
-                }
+        let mut emu = Emulator::new();
+        let mut rom = File::open(&args[1]).unwrap();
+        let mut buffer = Vec::new();
+        rom.read_to_end(&mut buffer).unwrap();
+        emu.load(&buffer);
+
+        Self { emu, texture: None }
+    }
+
+    fn handle_input(&mut self, ctx: &Context) {
+        const KEY_MAP: [(Key, usize); 16] = [
+            (Key::Num1, 0x1),
+            (Key::Num2, 0x2),
+            (Key::Num3, 0x3),
+            (Key::Num4, 0xC),
+            (Key::Q, 0x4),
+            (Key::W, 0x5),
+            (Key::E, 0x6),
+            (Key::R, 0xD),
+            (Key::A, 0x7),
+            (Key::S, 0x8),
+            (Key::D, 0x9),
+            (Key::F, 0xE),
+            (Key::Z, 0xA),
+            (Key::X, 0x0),
+            (Key::C, 0xB),
+            (Key::V, 0xF),
+        ];
+
+        ctx.input(|i| {
+            for (key, chip8_key) in KEY_MAP {
+                self.emu.keypress(chip8_key, i.key_down(key));
             }
-            Event::KeyUp {
-                keycode: Some(key), ..
-            } => {
-                if let Some(k) = key2btn(key) {
-                    emu.keypress(k, false);
-                }
-            }
-            _ => (),
-        }
+        })
+    }
+
+    fn draw_screen(&mut self, ctx: &Context) {
+        let display_buffer = self.emu.get_display();
+
+        let pixels: Vec<Color32> = display_buffer
+            .iter()
+            .map(|&on| if on { Color32::WHITE } else { Color32::BLACK })
+            .collect();
+
+        let image = eframe::egui::ColorImage {
+            size: [SCREEN_WIDTH, SCREEN_HEIGHT],
+            source_size: Vec2::new(SCREEN_WIDTH as f32, SCREEN_HEIGHT as f32),
+            pixels,
+        };
+
+        let options = TextureOptions::NEAREST;
+
+        let texture = self
+            .texture
+            .get_or_insert_with(|| ctx.load_texture("chip8_screen", image.clone(), options));
+
+        texture.set(image, options);
+
+        CentralPanel::default().show(ctx, |ui| {
+            let available_size = ui.available_size();
+
+            ui.image(ImageSource::Texture(SizedTexture {
+                id: texture.id(),
+                size: available_size,
+            }))
+        });
     }
 }
 
-fn key2btn(key: Keycode) -> Option<usize> {
-    match key {
-        Keycode::_1 => Some(0x1),
-        Keycode::_2 => Some(0x2),
-        Keycode::_3 => Some(0x3),
-        Keycode::_4 => Some(0xC),
-        Keycode::Q => Some(0x4),
-        Keycode::W => Some(0x5),
-        Keycode::E => Some(0x6),
-        Keycode::R => Some(0xD),
-        Keycode::A => Some(0x7),
-        Keycode::S => Some(0x8),
-        Keycode::D => Some(0x9),
-        Keycode::F => Some(0xE),
-        Keycode::Z => Some(0xA),
-        Keycode::X => Some(0x0),
-        Keycode::C => Some(0xB),
-        Keycode::V => Some(0xF),
-        _ => None,
+impl eframe::App for App {
+    fn update(&mut self, ctx: &eframe::egui::Context, _frame: &mut eframe::Frame) {
+        self.handle_input(ctx);
+        self.emu.tick_timers();
+
+        for _ in 0..INSTRUCTIONS_PER_FRAME {
+            self.emu.tick();
+        }
+
+        self.draw_screen(ctx);
+
+        ctx.request_repaint_after(Duration::from_millis(16));
     }
+}
+
+fn main() -> eframe::Result {
+    let native_options = NativeOptions {
+        viewport: ViewportBuilder::default().with_inner_size(Vec2::new(
+            (SCREEN_WIDTH * 15) as f32,
+            (SCREEN_HEIGHT * 15) as f32,
+        )),
+        ..Default::default()
+    };
+
+    eframe::run_native(
+        "Crust8 Emulator",
+        native_options,
+        Box::new(|cc| Ok(Box::new(App::new(cc)))),
+    )
 }
