@@ -9,7 +9,7 @@ use eframe::{
     },
 };
 
-const INSTRUCTIONS_PER_FRAME: u64 = 700 / 60;
+const INSTRUCTIONS_PER_FRAME: u64 = 4;
 
 struct App {
     emu: Emulator,
