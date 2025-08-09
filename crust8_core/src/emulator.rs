@@ -1,6 +1,6 @@
 use crate::constants::*;
-use crate::opcode::Opcode;
 use crate::error::EmulatorError;
+use crate::opcode::Opcode;
 use rand::random;
 
 pub struct Emulator {
