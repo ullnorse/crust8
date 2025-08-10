@@ -25,7 +25,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install just
-        run: cargo install just
+        uses: extractions/setup-just@v3
 
       - name: Build (Debug)
         run: just build-debug
