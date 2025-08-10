@@ -72,6 +72,7 @@ impl App {
         };
 
         let options = TextureOptions::NEAREST;
+        
         let texture = self
             .texture
             .get_or_insert_with(|| ctx.load_texture("chip8_screen", image.clone(), options));
