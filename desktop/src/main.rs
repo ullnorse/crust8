@@ -95,7 +95,7 @@ impl eframe::App for App {
 
         for _ in 0..INSTRUCTIONS_PER_FRAME {
             if let Err(e) = self.emu.tick() {
-                eprintln!("Emulator error: {:?}", e);
+                eprintln!("Emulator error: {e:?}");
             }
         }
 
